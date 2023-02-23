@@ -1,6 +1,5 @@
 import numpy as np
 import operator
-from operator import itemgetter
 from numpy.linalg import norm
 from math import *
 from decimal import Decimal
@@ -34,8 +33,8 @@ def minkowski_dist(x, y, p):
 
 
 class KNN:
-    def __init__(self, K=3):
-        self.K = K
+    def __init__(self, k=3):
+        self.k = k
 
     def fit(self, x_train, y_train):
         self.x_train = x_train
@@ -44,20 +43,19 @@ class KNN:
     def predict(self, x_test, metric):
         predictions = []
         for i in range(len(x_test)):
-            match metric:
-                case euclidean:
-                    dist = np.array([euclidean(x_test[i], x_t) for x_t in
-                                     self.x_train])
-                case manhattan:
-                    dist = np.array([manhattan(x_test[i], x_t) for x_t in
-                                     self.x_train])
-                case cosine:
-                    dist = np.array([cosine(x_test[i], x_t) for x_t in
-                                     self.x_train])
-                case minkowski: # Use hard-coded 3 as p-value for minkowski
-                    dist = np.array([minkowski(x_test[i], x_t, 3) for x_t in
-                                     self.x_train])
-            dist_sorted = dist.argsort()[:self.K]
+            if metric == "euclidean":
+                dist = np.array([euclidean_dist(x_test[i], x_t) for x_t in
+                                 self.x_train])
+            elif metric == "manhattan":
+                dist = np.array([manhattan_dist(x_test[i], x_t) for x_t in
+                                 self.x_train])
+            elif metric == "cosine":
+                dist = np.array([cosine_dist(x_test[i], x_t) for x_t in
+                                 self.x_train])
+            elif metric == "minkowski":  # Use hard-coded 3 as p-value for minkowski
+                dist = np.array([minkowski_dist(x_test[i], x_t, 3) for x_t in
+                                 self.x_train])
+            dist_sorted = dist.argsort()[:self.k]
             neigh_count = {}
             for idx in dist_sorted:
                 if self.y_train[idx] in neigh_count:
@@ -68,3 +66,31 @@ class KNN:
                                         key=operator.itemgetter(1), reverse=True)
             predictions.append(sorted_neigh_count[0][0])
         return predictions
+
+
+def accuracy(x, y):
+    return np.sum(x == y) / len(x)
+
+
+def main():
+    k_vals = [1, 3, 5, 10, 15]  # Values from 1 to 15
+    accuracies = []
+    train = np.loadtxt('../data/mnist_small/mnist_small_knn/train.csv', delimiter=',')
+    x_train = train[:, 1:train.shape[1]]
+    y_train = train[:, 0]  # only first column
+    test = np.loadtxt('../data/mnist_small/mnist_small_knn/test.csv', delimiter=',')
+    x_test = test[:, 1:test.shape[1]]
+    y_test = test[:, 0]  # only first column
+    metrics = ["euclidean", "manhattan", "cosine", "minkowski"]
+    for metric in metrics:
+        for k in k_vals:
+            model = KNN(k=k)
+            model.fit(x_train, y_train)
+            pred = model.predict(x_test, metric)
+            acc = accuracy(y_test, pred)
+            accuracies.append(acc)
+            print("K = " + str(k) + "; Accuracy: " + str(acc) + "; Metric: " + metric)
+
+
+if __name__ == '__main__':
+    main()
