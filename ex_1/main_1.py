@@ -1,3 +1,10 @@
+#######################
+#
+# Name: Brian Schweigler
+# Matriculation Number: 16-102-071
+#
+#######################
+
 import numpy as np
 import operator
 from numpy.linalg import norm
