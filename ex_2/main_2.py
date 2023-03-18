@@ -5,130 +5,97 @@
 #
 #######################
 import random
-
+from collections import defaultdict
 import numpy as np
-import operator
-from numpy.linalg import norm
-from math import *
-from decimal import Decimal
+from scipy.spatial.distance import cdist
+from scipy.spatial.distance import pdist
 
 
-# L_2 Norm
-def euclidean_dist(x, y):
-    return np.sqrt(np.sum((x - y) ** 2))
+def kmeans(x: np.ndarray, k: int, metric="euclidean"):
+    """
 
-
-# L_1 Norm
-def manhattan_dist(x, y):
-    return np.abs(np.sum((x - y)))
-
-
-def cosine_dist(x, y):
-    return np.dot(x, y) / (norm(x) * norm(y))
-
-
-# Preliminary function for minkowski dist
-def p_root(value, root):
-    root_value = 1 / float(root)
-    return round(Decimal(value) **
-                 Decimal(root_value), 3)
-
-
-# L_p Norm
-def minkowski_dist(x, y, p):
-    return (p_root(sum(pow(abs(a - b), p)
-                       for a, b in zip(x, y)), p))
-
-
-class KNN:
-    def __init__(self, k=3):
-        self.k = k
-
-    def fit(self, x_train, y_train):
-        self.x_train = x_train
-        self.y_train = y_train
-
-    def predict(self, x_test, metric):
-        predictions = []
-        for i in range(len(x_test)):
-            if metric == "euclidean":
-                dist = np.array([euclidean_dist(x_test[i], x_t) for x_t in
-                                 self.x_train])
-            elif metric == "manhattan":
-                dist = np.array([manhattan_dist(x_test[i], x_t) for x_t in
-                                 self.x_train])
-            elif metric == "cosine":
-                dist = np.array([cosine_dist(x_test[i], x_t) for x_t in
-                                 self.x_train])
-            elif metric == "minkowski":  # Use hard-coded 3 as p-value for minkowski
-                dist = np.array([minkowski_dist(x_test[i], x_t, 3) for x_t in
-                                 self.x_train])
-            dist_sorted = dist.argsort()[:self.k]
-            neigh_count = {}
-            for idx in dist_sorted:
-                if self.y_train[idx] in neigh_count:
-                    neigh_count[self.y_train[idx]] += 1
-                else:
-                    neigh_count[self.y_train[idx]] = 1
-            sorted_neigh_count = sorted(neigh_count.items(),
-                                        key=operator.itemgetter(1), reverse=True)
-            predictions.append(sorted_neigh_count[0][0])
-        return predictions
-
-
-# TODO Docu, TODO Test, TODO Both Indices
-def kmeans(x, k, metric="euclidean"):
+    :param x: The array representing the images.
+    :param k: The number of clusters to create.
+    :param metric: The metric to be used for the distance calculations.
+    :return:
+    """
     random.seed(6)  # for reproducibility
     cluster_centers = x[random.sample(range(len(x)), k)]
-    prior_cluster_centers = np.zeros((cluster_centers.shape), dtype=np.float)
+    prior_cluster_centers = np.zeros(cluster_centers.shape, dtype=float)
 
     while not np.array_equal(prior_cluster_centers, cluster_centers):
         prior_cluster_centers = cluster_centers
-        if metric == "euclidean":
-            dist = euclidean_dist(x, cluster_centers)
-        elif metric == "manhattan":
-            dist = manhattan_dist(x, cluster_centers)
-        elif metric == "cosine":
-            dist = cosine_dist(x, cluster_centers)
-        elif metric == "minkowski":
-            dist = minkowski_dist(x, cluster_centers)
-
+        dist = cdist(x, cluster_centers, metric)
         closest_medoid = np.argmin(dist, 1)
-        cluster_set = {}
+        # I tried with np.matrix and np.zeros, but always had trouble with the size. After googling for dict alternatives
+        # I found the defaultdict, which seems to work, although it's not as clear as working with np.matrix or np.zeros
+        cluster_set = defaultdict(list)
         for c, s in zip(closest_medoid, x):
-            cluster_set.append((c, s))
+            cluster_set[c].append(s)
         new_clusters = [np.array(cluster_set[c]) for c in range(k)]
-        cluster_centers = np.array([np.mean(cluster, 0) for cluster in new_clusters])
-        # for c in range(k):
-        #     cluster_set_c = [s for c, s in cluster_set if c == c]
-        #     cluster_centers[c] = cluster_set_c[np.argmin(np.sum(np.abs(cluster_set_c - cluster_centers[c]), 1))]
+        cluster_centers = np.array([np.mean(cluster, 0) for cluster in new_clusters])  # the new centers
+
     return new_clusters
 
 
-def accuracy(x, y):
-    return np.sum(x == y) / len(x)
+def dunn_index(clusters: list, k: int) -> float:
+    """
+    The ratio of the smallest distance between observations not in the same cluster to the largest intra-cluster dist.
+
+    :param clusters: The list of clusters
+    :param k: The number of clusters
+
+    :return: The dunn index
+    """
+    inter_cluster_dist = []
+    for i in range(k - 1):  # for each cluster
+        for j in range(i + 1, len(clusters)):  # iterate over all other clusters
+            # calculate distance between cluster i and j using the provided metric
+            inter_cluster_dist.append(np.min(cdist(clusters[i], clusters[j])))
+    # Take the min of all inter-cluster-distances and divide it by the max of all intra-cluster-distances
+    d_index = min(inter_cluster_dist) / max([np.max(pdist(cl)) for cl in clusters])  # the actual index
+    return d_index
+
+
+def davies_bouldin_index(clusters: list, k: int, metric="euclidean") -> float:
+    """
+    An internal evaluation scheme that measures the similarity between clusters.
+
+    :param clusters: The list of clusters
+    :param k: The number of clusters
+    :param metric: The metric to be used for the distance calculations
+
+    :return: The davis-bouldin index
+    """
+    m, d = [], []
+    for i in range(k):  # for each cluster, calculate m and d as defined in the lecture
+        m.append(np.sum(clusters[i], axis=0) / len(clusters[i]))  # the mean of the cluster
+        d.append(np.sum(cdist(clusters[i], np.array([m[i]]), metric)) / len(clusters[i]))  # the mean dist to medoid(?)
+    r = np.zeros((k, k))
+    for i in range(k - 1):  # for each cluster
+        for j in range(i + 1, k):  # iterate over all other clusters
+            r[i, j] = (d[i] + d[j]) / (cdist(np.array([m[i]]), np.array([m[j]]), metric))  # the ratio
+            r[j, i] = r[i, j]  # the matrix is symmetric
+    d_index = np.sum(np.max(r, axis=1)) / k
+    return d_index
 
 
 def main():
-    k_vals = [1, 3, 5, 10, 15]  # Values from 1 to 15
-    accuracies = []
+    k_vals = [5, 7, 9, 10, 12, 15]  # Values from 5 to 15
     train = np.loadtxt('../data/mnist_small/mnist_small_knn/train.csv', delimiter=',')
     x_train = train[:, 1:train.shape[1]]
-    y_train = train[:, 0]  # only first column
 
-    kmeans(x_train, 10, "euclidean")
-    test = np.loadtxt('../data/mnist_small/mnist_small_knn/test.csv', delimiter=',')
-    x_test = test[:, 1:test.shape[1]]
-    y_test = test[:, 0]  # only first column
-    metrics = ["euclidean", "manhattan", "cosine", "minkowski"]
+    # test = np.loadtxt('../data/mnist_small/mnist_small_knn/test.csv', delimiter=',')
+    # x_test = test[:, 1:test.shape[1]]
+    metrics = ["euclidean", "cityblock", "cosine"]
     for metric in metrics:
         for k in k_vals:
-            model = KNN(k=k)
-            model.fit(x_train, y_train)
-            pred = model.predict(x_test, metric)
-            acc = accuracy(y_test, pred)
-            accuracies.append(acc)
-            print("K = " + str(k) + "; Accuracy: " + str(acc) + "; Metric: " + metric)
+            clusters = kmeans(x_train, k, metric)
+            dunn_idx = dunn_index(clusters, k)
+            davies_bouldin_idx = davies_bouldin_index(clusters, k, metric)
+
+            print("K = " + str(k) + "; Metric: " + metric + "; Dunn-Index: " + str(round(dunn_idx, 3)) +
+                  "; Davis Bouldin Index: " + str(round(davies_bouldin_idx, 3)))
 
 
 if __name__ == '__main__':
